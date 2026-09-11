@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>실시간 간식 투표</title>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Pretendard, "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 16px;
+      color: #172033;
+      background: #f6f8ff;
+      --pizza: #ef6c57;
+      --chicken: #e7a91f;
+      --tteok: #8267d7;
+      --navy: #233876;
+      --muted: #5d6679;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; margin: 0; }
+    body {
+      min-width: 0;
+      background:
+        radial-gradient(circle at 10% 5%, #fff4cf 0, transparent 32rem),
+        radial-gradient(circle at 95% 95%, #e9e5ff 0, transparent 30rem),
+        #f6f8ff;
+    }
+    button, input { font: inherit; }
+    button { min-height: 48px; touch-action: manipulation; }
+    button:focus-visible, input:focus-visible { outline: 4px solid #9ec5ff; outline-offset: 3px; }
+
+    .app { width: min(100% - 32px, 960px); margin: 0 auto; padding: 24px 0 48px; }
+    .status-bar {
+      display: flex; align-items: center; justify-content: center; gap: 9px;
+      min-height: 46px; margin-bottom: 18px; padding: 10px 16px;
+      border: 1px solid #dce2f2; border-radius: 14px; background: rgba(255,255,255,.86);
+      color: var(--muted); font-weight: 750; text-align: center;
+    }
+    .status-dot { width: 11px; height: 11px; flex: 0 0 auto; border-radius: 50%; background: #9aa3b4; }
+    .status-bar.online .status-dot { background: #1ca66c; box-shadow: 0 0 0 5px #dff5eb; }
+    .status-bar.offline .status-dot, .status-bar.error .status-dot { background: #d94747; box-shadow: 0 0 0 5px #fde5e5; }
+
+    .screen[hidden] { display: none !important; }
+    .card {
+      overflow: hidden; padding: clamp(24px, 5vw, 48px); border: 1px solid #e1e5f0;
+      border-radius: 28px; background: rgba(255,255,255,.96); box-shadow: 0 18px 54px rgba(36,51,91,.12);
+    }
+    .eyebrow { margin: 0 0 10px; color: #52659e; font-size: .95rem; font-weight: 850; letter-spacing: .06em; }
+    h1 { margin: 0; font-size: clamp(2rem, 6vw, 3.7rem); line-height: 1.12; letter-spacing: -.045em; text-wrap: balance; }
+    .lead { margin: 16px auto 0; color: var(--muted); font-size: clamp(1rem, 2.5vw, 1.2rem); line-height: 1.65; }
+    .center { text-align: center; }
+
+    .mode-grid, .vote-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 34px; }
+    .mode-button, .vote-button {
+      width: 100%; border: 0; border-radius: 20px; padding: 22px 16px; color: white;
+      font-weight: 900; font-size: clamp(1.2rem, 4vw, 1.55rem); cursor: pointer;
+      box-shadow: 0 9px 0 rgba(23,32,51,.13); transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
+    }
+    .mode-button:hover, .vote-button:hover { filter: brightness(1.05); transform: translateY(-2px); }
+    .mode-button:active, .vote-button:active { transform: translateY(5px); box-shadow: 0 4px 0 rgba(23,32,51,.13); }
+    .teacher-button { background: #3f56a6; }
+    .student-button { background: #169368; }
+    .vote-button { min-height: 108px; font-size: clamp(1.25rem, 4vw, 1.65rem); }
+    .vote-button:disabled { cursor: not-allowed; filter: grayscale(.45); opacity: .62; transform: none; }
+    .pizza { background: var(--pizza); }
+    .chicken { background: var(--chicken); color: #2d240d; }
+    .tteok { background: var(--tteok); }
+
+    .password-panel { max-width: 510px; margin: 28px auto 0; padding: 22px; border-radius: 20px; background: #f1f4ff; text-align: left; }
+    .password-panel[hidden] { display: none; }
+    label { display: block; margin-bottom: 9px; font-weight: 850; }
+    .password-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+    input {
+      width: 100%; min-width: 0; height: 50px; border: 2px solid #c8d0e7; border-radius: 12px;
+      padding: 0 14px; background: white; color: #172033;
+    }
+    .small-button, .home-button {
+      border: 0; border-radius: 12px; padding: 10px 18px; background: var(--navy); color: white; font-weight: 850; cursor: pointer;
+    }
+    .home-button { margin-bottom: 22px; background: #e8ecf8; color: #26365f; }
+    .message { min-height: 25px; margin: 10px 0 0; color: #ba3030; font-weight: 750; line-height: 1.5; }
+    .success { color: #087b51; }
+    .notice { margin: 22px 0 0; color: #5b6375; line-height: 1.6; }
+
+    .vote-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .score-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 28px; }
+    .score-box { min-width: 0; padding: 18px 10px; border-radius: 16px; background: #f3f5fb; text-align: center; }
+    .score-box span { display: block; color: var(--muted); font-weight: 750; }
+    .score-box strong { display: block; margin-top: 4px; font-size: clamp(1.7rem, 5vw, 2.5rem); font-variant-numeric: tabular-nums; }
+    .save-message { min-height: 27px; margin: 18px 0 0; text-align: center; font-weight: 800; }
+
+    .results { display: grid; gap: 28px; margin-top: 34px; }
+    .result-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) 76px; gap: 18px; align-items: center; }
+    .result-label { font-size: 1.3rem; font-weight: 900; }
+    .bar-track { height: 44px; overflow: hidden; border-radius: 999px; background: #e9edf5; }
+    .bar { width: 0; height: 100%; border-radius: inherit; transition: width .55s cubic-bezier(.2,.8,.2,1); }
+    .result-count { text-align: right; font-size: 1.75rem; font-weight: 950; font-variant-numeric: tabular-nums; }
+    .total { margin: 34px 0 0; padding-top: 26px; border-top: 2px solid #edf0f6; text-align: center; font-size: clamp(1.35rem, 4vw, 1.85rem); font-weight: 900; }
+
+    .footer { margin-top: 24px; color: #697183; font-size: .9rem; line-height: 1.6; text-align: center; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+    @media (max-width: 700px) {
+      .app { width: min(100% - 24px, 960px); padding-top: 12px; }
+      .card { border-radius: 22px; }
+      .vote-grid { grid-template-columns: 1fr; }
+      .vote-button { min-height: 78px; }
+      .result-row { grid-template-columns: 1fr 62px; gap: 9px 12px; }
+      .result-label { grid-column: 1; }
+      .result-count { grid-column: 2; }
+      .bar-track { grid-column: 1 / -1; grid-row: 2; height: 34px; }
+    }
+    @media (max-width: 480px) {
+      .mode-grid, .score-strip { grid-template-columns: 1fr; }
+      .score-strip { gap: 8px; }
+      .score-box { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; text-align: left; }
+      .score-box strong { margin: 0; }
+      .password-row { grid-template-columns: 1fr; }
+      .password-row .small-button { width: 100%; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <div id="connectionStatus" class="status-bar" role="status" aria-live="polite">
+      <span class="status-dot" aria-hidden="true"></span><span id="connectionText">Firebase 설정을 확인하는 중입니다</span>
+    </div>
+
+    <section id="homeScreen" class="screen">
+      <div class="card center">
+        <p class="eyebrow">초보자 수업용 웹앱</p>
+        <h1>실시간 간식 투표</h1>
+        <p class="lead">참여할 모드를 선택해 주세요.</p>
+        <div class="mode-grid">
+          <button id="showTeacherLogin" class="mode-button teacher-button" type="button">👩‍🏫 강사 모드</button>
+          <button id="openStudent" class="mode-button student-button" type="button">🙋 학생 모드</button>
+        </div>
+        <form id="passwordPanel" class="password-panel" hidden novalidate>
+          <label for="teacherPassword">강사 비밀번호</label>
+          <div class="password-row">
+            <input id="teacherPassword" type="password" inputmode="numeric" autocomplete="off" maxlength="12" aria-describedby="passwordMessage">
+            <button class="small-button" type="submit">강사 화면 열기</button>
+          </div>
+          <p id="passwordMessage" class="message" aria-live="polite"></p>
+        </form>
+      </div>
+      <p class="footer">제작 설명: 비밀번호 1004는 실습용 화면 진입 제한일 뿐이며, 실제 데이터 보안을 보장하지 않습니다.</p>
+    </section>
+
+    <section id="studentScreen" class="screen" hidden>
+      <button class="home-button" type="button" data-home>← 처음으로</button>
+      <div class="card center">
+        <p class="eyebrow">학생 모드</p>
+        <h1>오늘 먹고 싶은 간식은?</h1>
+        <p class="notice">중복 투표가 가능한 실습용 투표입니다.</p>
+        <div class="vote-grid">
+          <button class="vote-button pizza" type="button" data-vote="pizza">🍕 피자</button>
+          <button class="vote-button chicken" type="button" data-vote="chicken">🍗 치킨</button>
+          <button class="vote-button tteok" type="button" data-vote="tteok">🍜 떡볶이</button>
+        </div>
+        <p id="saveMessage" class="save-message" role="status" aria-live="polite"></p>
+        <div class="score-strip" aria-label="실시간 득표수">
+          <div class="score-box"><span>🍕 피자</span><strong data-count="pizza">0표</strong></div>
+          <div class="score-box"><span>🍗 치킨</span><strong data-count="chicken">0표</strong></div>
+          <div class="score-box"><span>🍜 떡볶이</span><strong data-count="tteok">0표</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="teacherScreen" class="screen" hidden>
+      <button class="home-button" type="button" data-home>← 처음으로</button>
+      <div class="card">
+        <div class="center">
+          <p class="eyebrow">강사 모드</p>
+          <h1>우리 반 간식 투표 결과</h1>
+        </div>
+        <div class="results" aria-label="메뉴별 투표 결과">
+          <div class="result-row">
+            <span class="result-label">🍕 피자</span><div class="bar-track"><div class="bar pizza" data-bar="pizza"></div></div><strong class="result-count" data-count="pizza">0표</strong>
+          </div>
+          <div class="result-row">
+            <span class="result-label">🍗 치킨</span><div class="bar-track"><div class="bar chicken" data-bar="chicken"></div></div><strong class="result-count" data-count="chicken">0표</strong>
+          </div>
+          <div class="result-row">
+            <span class="result-label">🍜 떡볶이</span><div class="bar-track"><div class="bar tteok" data-bar="tteok"></div></div><strong class="result-count" data-count="tteok">0표</strong>
+          </div>
+        </div>
+        <p id="totalVotes" class="total">지금까지 총 0표</p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    "use strict";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCDfhTD7OyMM0gcl5xL2zPSlv10Ukw6Wlw",
+      authDomain: "test-eb5b4.firebaseapp.com",
+      databaseURL: "https://test-eb5b4-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "test-eb5b4",
+      storageBucket: "test-eb5b4.firebasestorage.app",
+      messagingSenderId: "789258759474",
+      appId: "1:789258759474:web:b656aea108759eb083fb2b"
+    };
+
+    const VOTES_PATH = "practice/snackVotes";
+    const MENUS = ["pizza", "chicken", "tteok"];
+    const homeScreen = document.getElementById("homeScreen");
+    const studentScreen = document.getElementById("studentScreen");
+    const teacherScreen = document.getElementById("teacherScreen");
+    const passwordPanel = document.getElementById("passwordPanel");
+    const passwordInput = document.getElementById("teacherPassword");
+    const passwordMessage = document.getElementById("passwordMessage");
+    const saveMessage = document.getElementById("saveMessage");
+    const connectionStatus = document.getElementById("connectionStatus");
+    const connectionText = document.getElementById("connectionText");
+    const voteButtons = [...document.querySelectorAll("[data-vote]")];
+    let votesRef = null;
+    let firebaseReady = false;
+    let votes = { pizza: 0, chicken: 0, tteok: 0 };
+
+    function setConnection(state, message) {
+      connectionStatus.className = "status-bar " + state;
+      connectionText.textContent = message;
+      voteButtons.forEach((button) => { button.disabled = !firebaseReady; });
+    }
+
+    function showScreen(screen) {
+      [homeScreen, studentScreen, teacherScreen].forEach((item) => { item.hidden = item !== screen; });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function goHome() {
+      passwordPanel.hidden = true;
+      passwordInput.value = "";
+      passwordMessage.textContent = "";
+      saveMessage.textContent = "";
+      showScreen(homeScreen);
+    }
+
+    function safeCount(value) {
+      return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+    }
+
+    function renderVotes(rawVotes) {
+      votes = {
+        pizza: safeCount(rawVotes && rawVotes.pizza),
+        chicken: safeCount(rawVotes && rawVotes.chicken),
+        tteok: safeCount(rawVotes && rawVotes.tteok)
+      };
+      const total = MENUS.reduce((sum, menu) => sum + votes[menu], 0);
+      const max = Math.max(...MENUS.map((menu) => votes[menu]), 1);
+      MENUS.forEach((menu) => {
+        document.querySelectorAll(`[data-count="${menu}"]`).forEach((el) => { el.textContent = votes[menu] + "표"; });
+        const bar = document.querySelector(`[data-bar="${menu}"]`);
+        bar.style.width = (votes[menu] === 0 ? 0 : (votes[menu] / max) * 100) + "%";
+        bar.setAttribute("aria-label", votes[menu] + "표");
+      });
+      document.getElementById("totalVotes").textContent = "지금까지 총 " + total + "표";
+    }
+
+    document.getElementById("showTeacherLogin").addEventListener("click", () => {
+      passwordPanel.hidden = false;
+      passwordMessage.textContent = "";
+      passwordInput.value = "";
+      passwordInput.focus();
+    });
+
+    passwordPanel.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (passwordInput.value === "1004") {
+        passwordInput.value = "";
+        passwordMessage.textContent = "";
+        passwordPanel.hidden = true;
+        showScreen(teacherScreen);
+      } else {
+        passwordMessage.textContent = "비밀번호가 올바르지 않습니다. 다시 입력해 주세요.";
+        passwordInput.select();
+      }
+    });
+
+    document.getElementById("openStudent").addEventListener("click", () => showScreen(studentScreen));
+    document.querySelectorAll("[data-home]").forEach((button) => button.addEventListener("click", goHome));
+
+    voteButtons.forEach((button) => {
+      button.addEventListener("click", async () => {
+        if (!firebaseReady || !votesRef) {
+          saveMessage.className = "save-message message";
+          saveMessage.textContent = "Firebase에 연결되지 않아 투표를 저장하지 못했습니다.";
+          return;
+        }
+        const menu = button.dataset.vote;
+        voteButtons.forEach((item) => { item.disabled = true; });
+        saveMessage.className = "save-message";
+        saveMessage.textContent = "투표를 저장하는 중입니다…";
+        try {
+          await votesRef.child(menu).transaction((current) => safeCount(current) + 1);
+          saveMessage.className = "save-message success";
+          saveMessage.textContent = "투표가 저장되었습니다!";
+        } catch (error) {
+          console.error("투표 저장 실패:", error);
+          saveMessage.className = "save-message message";
+          saveMessage.textContent = "투표 저장에 실패했습니다. 연결 상태를 확인하고 다시 시도해 주세요.";
+        } finally {
+          voteButtons.forEach((item) => { item.disabled = !firebaseReady; });
+        }
+      });
+    });
+
+    function startFirebase() {
+      const required = ["apiKey", "databaseURL", "projectId", "appId"];
+      const missing = required.filter((key) => !firebaseConfig[key] || !String(firebaseConfig[key]).trim());
+      if (missing.length) {
+        firebaseReady = false;
+        setConnection("error", "Firebase 설정 필요: " + missing.join(", ") + " 값이 없습니다");
+        return;
+      }
+      if (typeof firebase === "undefined") {
+        setConnection("error", "Firebase SDK를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요");
+        return;
+      }
+      try {
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        votesRef = database.ref(VOTES_PATH);
+        database.ref(".info/connected").on("value", (snapshot) => {
+          firebaseReady = snapshot.val() === true;
+          setConnection(firebaseReady ? "online" : "offline", firebaseReady ? "Firebase에 연결되었습니다 · 실시간 반영 중" : "Firebase 연결이 끊겼습니다 · 다시 연결하는 중");
+        });
+        votesRef.on("value", (snapshot) => renderVotes(snapshot.val()), (error) => {
+          console.error("투표 데이터 읽기 실패:", error);
+          setConnection("error", "투표 데이터를 불러오지 못했습니다. Database 규칙을 확인해 주세요");
+        });
+      } catch (error) {
+        console.error("Firebase 초기화 실패:", error);
+        firebaseReady = false;
+        setConnection("error", "Firebase 초기화에 실패했습니다. 설정값을 확인해 주세요");
+      }
+    }
+
+    renderVotes(null);
+    startFirebase();
+  </script>
+</body>
+</html>
+
